@@ -1,126 +1,108 @@
+import { useCallback, useMemo, useState } from "react";
 import "./styles.css";
+import { useSortingStore } from "./store";
+import { OrdersPage, SettingPage, SortingPage } from "./pages";
+import { isAssigned } from "./judge";
 
-const project = {
-  "sourceNo": 8,
-  "id": "hxyfront-62006",
-  "port": 62006,
-  "title": "珠宝镶嵌宝石分拣",
-  "domain": "珠宝镶嵌",
-  "prompt": "我需要一个面向珠宝镶嵌工作室的宝石分拣前端系统，可以记录宝石编号、种类、形状、克拉重量、尺寸、净度、颜色、切工、镶嵌位置和分拣状态。页面需要有分拣批次、尺寸筛选、镶嵌位置示意图、缺陷备注和按订单查看的宝石清单。",
-  "palette": [
-    "#be123c",
-    "#0f766e",
-    "#a855f7"
-  ],
-  "metrics": [
-    "分拣批次",
-    "待镶嵌",
-    "缺陷备注",
-    "总克拉"
-  ],
-  "filters": [
-    "圆形",
-    "椭圆",
-    "梨形",
-    "祖母绿切"
-  ],
-  "fields": [
-    "宝石编号",
-    "种类",
-    "形状",
-    "克拉重量",
-    "尺寸",
-    "镶嵌位置"
-  ],
-  "records": [
-    [
-      "ST-2048",
-      "蓝宝石",
-      "椭圆6x4mm",
-      "主石位"
-    ],
-    [
-      "ST-2061",
-      "钻石",
-      "圆形0.08ct",
-      "围石A组"
-    ],
-    [
-      "ST-2099",
-      "祖母绿",
-      "内含物明显",
-      "需客户确认"
-    ]
-  ]
-};
+type Tab = "sorting" | "setting" | "orders";
+
+const TABS: { key: Tab; label: string; hint: string }[] = [
+  { key: "sorting", label: "分拣台", hint: "裸石登记 · 批次封存" },
+  { key: "setting", label: "镶嵌位置", hint: "主石 1 颗 · 围石 8 颗" },
+  { key: "orders", label: "订单清单", hint: "按订单查看共用记录" },
+];
+
+interface Toast {
+  id: number;
+  msg: string;
+  type: "ok" | "err";
+}
 
 function App() {
+  const store = useSortingStore();
+  const { state } = store;
+  const [tab, setTab] = useState<Tab>("sorting");
+  const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const notify = useCallback((msg: string, type: "ok" | "err" = "ok") => {
+    const id = Date.now() + Math.random();
+    setToasts((t) => [...t, { id, msg, type }]);
+    window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3600);
+  }, []);
+
+  const metrics = useMemo(() => {
+    const activeBatches = state.batches.filter((b) => !b.sealed).length;
+    const pending = state.gems.filter((g) => !isAssigned(g) && !state.batches.find((b) => b.id === g.batchId)?.sealed).length;
+    const defects = state.gems.filter((g) => g.defectNote && !g.defectHandled && !state.batches.find((b) => b.id === g.batchId)?.sealed).length;
+    const carat = state.gems.reduce((s, g) => s + g.carat, 0);
+    return [
+      { label: "分拣批次（进行中）", value: `${activeBatches}` },
+      { label: "待镶嵌裸石", value: `${pending}` },
+      { label: "未处理缺陷", value: `${defects}` },
+      { label: "总克拉", value: `${carat.toFixed(2)}ct` },
+    ];
+  }, [state]);
+
   return (
     <main className="app">
-      <section className="hero">
-        <p>{project.id} · 源提示词{project.sourceNo} · Port {project.port}</p>
-        <h1>{project.title}</h1>
-        <span>{project.prompt}</span>
-      </section>
+      <header className="topbar">
+        <div>
+          <p className="eyebrow">珠宝镶嵌工作室 · 宝石分拣台</p>
+          <h1>裸石分拣与镶嵌位置管理</h1>
+          <span className="subtitle">
+            先归入分拣批次，再分配到订单主石位（1 颗）或围石位（最多 8 颗）；
+            尺寸筛选、位置示意与订单清单共用同一份记录，数据保存在本机浏览器。
+          </span>
+        </div>
+        <nav className="tabs">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              className={tab === t.key ? "active" : ""}
+              onClick={() => setTab(t.key)}
+            >
+              <b>{t.label}</b>
+              <small>{t.hint}</small>
+            </button>
+          ))}
+        </nav>
+      </header>
 
       <section className="metrics">
-        {project.metrics.map((metric: string, index: number) => (
-          <article key={metric}>
-            <small>{metric}</small>
-            <strong>{[86, 14, 7, 32][index] ?? 12}</strong>
+        {metrics.map((m) => (
+          <article key={m.label}>
+            <small>{m.label}</small>
+            <strong>{m.value}</strong>
           </article>
         ))}
       </section>
 
-      <section className="workspace">
-        <aside className="panel">
-          <h2>{project.domain}筛选</h2>
-          <div className="chips">
-            {project.filters.map((item: string) => (
-              <button key={item}>{item}</button>
-            ))}
-          </div>
-        </aside>
+      {tab === "sorting" && <SortingPage store={store} notify={notify} />}
+      {tab === "setting" && <SettingPage store={store} notify={notify} />}
+      {tab === "orders" && <OrdersPage store={store} notify={notify} />}
 
-        <section className="panel form-panel">
-          <div className="heading">
-            <div>
-              <p>专业字段</p>
-              <h2>新增记录</h2>
-            </div>
-            <button className="primary">保存草稿</button>
-          </div>
-          <div className="field-grid">
-            {project.fields.map((field: string) => (
-              <label key={field}>
-                <span>{field}</span>
-                <input placeholder={"填写" + field} />
-              </label>
-            ))}
-          </div>
-        </section>
-      </section>
+      <footer className="foot">
+        <span>数据通过 localStorage 本地存档，关闭浏览器后再打开待办仍在。</span>
+        <button
+          className="danger-text"
+          onClick={() => {
+            if (window.confirm("确认清空全部本地记录并恢复演示数据？此操作不可撤销。")) {
+              store.resetAll();
+              notify("已重置为演示数据");
+            }
+          }}
+        >
+          重置演示数据
+        </button>
+      </footer>
 
-      <section className="panel">
-        <div className="heading">
-          <div>
-            <p>历史记录</p>
-            <h2>近期工作台</h2>
+      <div className="toast-stack">
+        {toasts.map((t) => (
+          <div key={t.id} className={`toast ${t.type}`}>
+            {t.type === "ok" ? "✓ " : "✕ "}{t.msg}
           </div>
-          <button>导出摘要</button>
-        </div>
-        <div className="records">
-          {project.records.map((record: string[], index: number) => (
-            <article key={record.join("-")}>
-              <b>{String(index + 1).padStart(2, "0")}</b>
-              <div>
-                <h3>{record[0]}</h3>
-                <p>{record.slice(1).join(" · ")}</p>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
+        ))}
+      </div>
     </main>
   );
 }
